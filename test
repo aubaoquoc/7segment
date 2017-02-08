@@ -1,0 +1,270 @@
+#include <ESP8266WiFi.h>
+#include <string.h>
+#include <TimeLib.h>
+#include <EEPROM.h>
+#include <WiFiUdp.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+
+/*
+// Khai báo các chân nối với nút cảm ứng và relay
+const byte relayPins[]  = {D1, D2, D3, D4, D7, D6, D5, D0};
+
+int relayStatus[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+byte relaysInfo[][7] = { 
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0},
+  {0, 0, 0, 0, 0, 0, 0} 
+};  */
+
+// Khai báo web server hỗ trợ bật tắt qua giao diện web
+ESP8266WebServer server(80);
+
+// Cấu hình thư viện NTP để lấy giờ hiện tại từ Internet
+WiFiUDP Udp;
+unsigned int localPort = 8888;  // local port to listen for UDP packets
+time_t getNtpTime();
+void sendNTPpacket(IPAddress &address);
+static const char ntpServerName[] = "us.pool.ntp.org";
+const int timeZone = 7; // GMT của Việt Nam, GMT+7
+time_t lastClockUpdateTime = 0; // Lưu thời gian lần cuối cập nhật đồng hồ
+
+
+
+  
+  /*  
+  // Kết nối Wifi và chờ đến khi kết nối thành công
+  WiFi.begin("Sandiego", "0988807067");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  */
+  
+  WiFiManager wifiManager;
+  // Reset cấu hình wifi
+  //wifiManager.resetSettings();
+  
+  // Đọc wifi ssid và password từ bộ nhớ eeprom để kết nối wifi
+  // Nếu không kết nối được thì bật chế độ access point với tên wifi là
+  // "SmartSwitchAP" và chờ kết nối từ user để cấu hình
+  wifiManager.autoConnect("SmartSwitchAP");
+
+  // Nếu đã đến bước này thì là đã kết nối wifi thành công
+  Serial.println("Wifi connected");
+
+  // Kết nối tới NTP server dùng UDP để cập nhật thời gian
+  Serial.println("Starting UDP");
+  Udp.begin(localPort);
+  Serial.print("Local port: ");
+  Serial.println(Udp.localPort());
+  Serial.println("waiting for sync");
+  setSyncProvider(getNtpTime);
+  setSyncInterval(300);
+}
+
+void loop() {
+  updateTime();
+  server.handleClient();
+  checkTimer();
+}
+
+/*---------------------- Web server setup ----------------------*/
+
+
+
+void returnJSON(String jsonString) {
+  server.send(200, "application/json", jsonString);
+}
+
+
+
+void handleSave()
+{
+  DynamicJsonBuffer jsonBuffer;
+  JsonArray& root = jsonBuffer.parseArray(server.arg(0));
+  
+  Serial.println("User saves new settings");
+ 
+     }
+  
+  saveSettings();
+  
+  server.send(200, "text/html", "");
+}
+
+void returnFail(String msg)
+{
+  server.sendHeader("Connection", "close");
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(500, "text/plain", msg + "\r\n");
+}
+
+void handleNotFound()
+{
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+  for (uint8_t i=0; i<server.args(); i++){
+    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  }
+  server.send(404, "text/plain", message);
+}
+
+
+void saveSettings() {
+  Serial.println();
+  Serial.println("Writing settings to eeprom:");
+  EEPROM.begin(512);
+  for (int i = 0; i<48; i++) { 
+    EEPROM.write(i, 0); 
+  }
+  EEPROM.commit();
+  delay(100);
+
+  EEPROM.begin(512);
+  int pos = 0;
+       
+      Serial.print(relaysInfo[i][j], DEC);
+      Serial.print(" ");
+      pos++;
+    }
+    Serial.println("");
+  }    
+  EEPROM.commit();
+}
+
+void loadSettings() {
+  Serial.println("Load settings from eeprom:");
+  EEPROM.begin(512);
+  delay(10);
+
+  int pos = 0;
+  
+    Serial.print("Relay "); Serial.print(i); Serial.print(": ");
+    
+      Serial.print(" ");
+      pos++;
+    }
+    Serial.println();    
+  }
+}
+
+/*-------- Đoạn code cập nhật thời gian dùng NTP ----------*/
+
+void updateTime() {
+  if (timeStatus() != timeNotSet) {
+    if (now() != lastClockUpdateTime) { // Chỉ update nếu thời gian đã thay đổi
+      lastClockUpdateTime = now();
+      Serial.print("Gio hien tai la ");
+      Serial.print(hour()); Serial.print(":");
+      Serial.print(minute()); Serial.print(":");
+      Serial.print(second()); Serial.print(" ");
+
+      Serial.print(day()); Serial.print("/");
+      Serial.print(month()); Serial.print("/");
+      Serial.print(year()); Serial.print(" ");
+
+      switch (weekday())
+      {
+        case 1: Serial.print(" SUN"); break;
+        case 2: Serial.print(" MON"); break;
+        case 3: Serial.print(" TUE"); break;
+        case 4: Serial.print(" WED"); break;
+        case 5: Serial.print(" THU"); break;
+        case 6: Serial.print(" FRI"); break;
+        case 7: Serial.print(" SAT"); break;
+      }
+
+      Serial.println(); Serial.println();
+    }
+  }  
+}
+
+const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+
+time_t getNtpTime() {
+  for(int i=0; i<5; i++) {
+    IPAddress ntpServerIP; // NTP server's ip address
+
+    while (Udp.parsePacket() > 0) ; // discard any previously received packets
+    Serial.println("Transmit NTP Request");
+    // get a random server from the pool
+    WiFi.hostByName(ntpServerName, ntpServerIP);
+    Serial.print(ntpServerName);
+    Serial.print(": ");
+    Serial.println(ntpServerIP);
+    sendNTPpacket(ntpServerIP);
+    uint32_t beginWait = millis();
+    while (millis() - beginWait < 2000) {
+      int size = Udp.parsePacket();
+      if (size >= NTP_PACKET_SIZE) {
+        Serial.println("Receive NTP Response");
+        Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+        unsigned long secsSince1900;
+        // convert four bytes starting at location 40 to a long integer
+        secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+        secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+        secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+        secsSince1900 |= (unsigned long)packetBuffer[43];
+        return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+      }
+    }
+    Serial.println("No NTP Response :-(");
+  }
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address) {
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+
+void checkTimer() {
+  int currentHour = hour();
+  int currentMin = minute();
+
+     
+        Serial.print("Turn on relay: "); Serial.println(i);
+      }
+      int offHour = relaysInfo[i][5];
+      int offMin = relaysInfo[i][6];
+   
+          saveSettings();
+        }
+      }
+    }
+  }
+}
